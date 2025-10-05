@@ -1,0 +1,27 @@
+github:
+  token: null  # 设置环境变量 GITHUB_TOKEN
+  api_url: https://api.github.com
+  rate_limit_per_hour: 5000
+  timeout: 30
+
+notification:
+  email_smtp_server: null
+  email_port: 587
+  email_username: null
+  email_password: null
+  email_use_tls: true
+  slack_webhook_url: null
+  discord_webhook_url: null
+  webhook_timeout: 10
+
+database:
+  type: json
+  path: data/subscriptions.json
+
+log_level: INFO
+log_file: logs/github_sentinel.log
+daily_scan_time: "09:00"
+weekly_scan_time: "09:00"
+weekly_scan_day: monday
+reports_dir: data/reports
+max_concurrent_requests: 5
