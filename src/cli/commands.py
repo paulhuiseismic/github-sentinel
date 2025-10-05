@@ -75,6 +75,11 @@ class GitHubSentinelCLI:
         test_parser = subparsers.add_parser('test', help='测试通知配置')
         test_parser.add_argument('notification_type', choices=['email', 'slack', 'discord', 'webhook'])
 
+        # 手动测试扫描命令
+        test_scan_parser = subparsers.add_parser('test-scan', help='手动测试每日/每周扫描功能')
+        test_scan_parser.add_argument('--type', choices=['daily', 'weekly'], default='daily', help='扫描类型')
+        test_scan_parser.add_argument('--days', type=int, help='扫描最近几天的更新 (覆盖默认值)')
+
         return parser
 
     async def handle_add_subscription(self, args):
@@ -263,6 +268,39 @@ class GitHubSentinelCLI:
         except Exception as e:
             print(f"❌ 测试通知时出错: {e}")
 
+    async def handle_test_scan(self, args):
+        """处理手动测试扫描命令"""
+        try:
+            print(f"🔍 正在进行手动测试扫描，类型: {args.type}...")
+            subscriptions = await self.subscription_service.get_active_subscriptions()
+
+            if not subscriptions:
+                print("📭 没有活跃的订阅")
+                return
+
+            days = args.days if args.days else (7 if args.type == 'weekly' else 1)
+            updates = await self.update_service.fetch_updates(subscriptions, days=days)
+
+            if updates:
+                print(f"📬 发现 {len(updates)} 个更新:")
+                print()
+
+                for update in updates[:10]:  # 只显示前10个
+                    print(f"📝 {update.owner}/{update.repo_name}")
+                    print(f"   类型: {update.update_type}")
+                    print(f"   标题: {update.title}")
+                    print(f"   作者: {update.author}")
+                    print(f"   时间: {update.created_at.strftime('%Y-%m-%d %H:%M')}")
+                    print()
+
+                if len(updates) > 10:
+                    print(f"... 还有 {len(updates) - 10} 个更新")
+            else:
+                print("📭 没有新的更新")
+
+        except Exception as e:
+            print(f"❌ 测试扫描时出错: {e}")
+
     async def run(self, args):
         """运行CLI命令"""
         if args.command == 'add':
@@ -281,6 +319,8 @@ class GitHubSentinelCLI:
             await self.handle_status(args)
         elif args.command == 'test':
             await self.handle_test_notification(args)
+        elif args.command == 'test-scan':
+            await self.handle_test_scan(args)
         else:
             print("❓ 未知命令，使用 --help 查看帮助")
 

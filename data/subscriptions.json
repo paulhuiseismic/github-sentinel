@@ -1,2 +1,20 @@
-[]
-
+[
+  {
+    "id": "31fe08b1-57a8-4d80-a0c5-54e34605d985",
+    "repo_url": "https://github.com/langchain-ai/langchain",
+    "owner": "langchain-ai",
+    "repo_name": "langchain",
+    "notification_types": [
+      "email"
+    ],
+    "frequency": "daily",
+    "update_types": [
+      "all"
+    ],
+    "created_at": "2025-10-01T23:51:38.687958",
+    "last_checked": null,
+    "is_active": true,
+    "filters": null,
+    "notification_config": null
+  }
+]

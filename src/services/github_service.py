@@ -4,7 +4,7 @@ GitHub API 服务
 import aiohttp
 import asyncio
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 
 from ..models.repository import Repository, RepositoryUpdate
@@ -163,7 +163,15 @@ class GitHubService:
             for pr_data in prs_data:
                 # 检查更新时间
                 updated_at = datetime.fromisoformat(pr_data['updated_at'].replace('Z', '+00:00'))
-                if updated_at < since:
+
+                # Fix timezone comparison issue
+                if since.tzinfo is None:
+                    # Convert naive datetime to timezone-aware using UTC
+                    since_aware = since.replace(tzinfo=timezone.utc)
+                else:
+                    since_aware = since
+
+                if updated_at < since_aware:
                     break  # 由于按更新时间排序，可以提前退出
 
                 try:
@@ -191,7 +199,15 @@ class GitHubService:
             for release_data in releases_data:
                 # 检查发布时间
                 created_at = datetime.fromisoformat(release_data['created_at'].replace('Z', '+00:00'))
-                if created_at < since:
+
+                # Fix timezone comparison issue
+                if since.tzinfo is None:
+                    # Convert naive datetime to timezone-aware using UTC
+                    since_aware = since.replace(tzinfo=timezone.utc)
+                else:
+                    since_aware = since
+
+                if created_at < since_aware:
                     break  # 由于GitHub按时间排序，可以提前退出
 
                 try:
