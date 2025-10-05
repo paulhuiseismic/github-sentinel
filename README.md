@@ -2,7 +2,7 @@
 
 GitHub Sentinel 是一款开源工具类AI Agent，专为开发者和项目管理人员设计，能够定期（每日/每周）自动获取并汇总订阅的GitHub仓库最新动态。
 
-## 🚀 主��功能
+## 🚀 主要功能
 
 - **订阅管理**: 添加、删除、管理GitHub仓库订阅
 - **更新获取**: 自动获取仓库的commits、issues、pull requests、releases等更新
@@ -225,8 +225,6 @@ python -m pytest tests/test_models.py -v
 如有问题或建议，请：
 
 - 提交 [Issue](https://github.com/your-username/github-sentinel/issues)
-- 发送邮件到 support@github-sentinel.com
-- 加入我们的 [Discord 社区](https://discord.gg/github-sentinel)
 
 ---
 
