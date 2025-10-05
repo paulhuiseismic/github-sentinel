@@ -184,6 +184,7 @@ github-sentinel/
 ├── data/                # 数据存储
 ├── logs/                # 日志文件
 ├── tests/               # 测试文件
+├── release_notes/       # 版本发布说明
 └── requirements.txt     # 依赖包
 ```
 
@@ -200,6 +201,13 @@ python -m pytest tests/ -v
 ```bash
 python -m pytest tests/test_models.py -v
 ```
+
+## 📋 版本发布
+
+查看项目的版本发布历史和详细说明：
+
+- **当前版本**: v0.0.1 - [发布说明](release_notes/RELEASE_NOTES_v0.0.1.md)
+- **所有版本**: 查看 [release_notes/](release_notes/) 目录获取完整的版本历史
 
 ## 🤝 贡献
 
