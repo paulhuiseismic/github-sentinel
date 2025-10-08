@@ -238,24 +238,24 @@ class GitHubService:
 
         # 根据模式调整参数
         if compact_mode:
-            # 紧凑模式：只获取merged PR和open issues，不包含body
+            # 紧凑模式：只获取merged PR和closed issues，不包含body
             issues = await self.get_issues(
                 owner, repo, since=since, until=until,
-                state="open", per_page=20, include_body=False
+                state="closed", per_page=20, include_body=False
             )
             pull_requests = await self.get_pull_requests(
                 owner, repo, since=since, until=until,
                 per_page=20, merged_only=True, include_body=False
             )
         else:
-            # 完整模式
+            # 完整模式：获取所有状态的issues和PR
             issues = await self.get_issues(
                 owner, repo, since=since, until=until,
-                per_page=50, include_body=True
+                state="all", per_page=50, include_body=True
             )
             pull_requests = await self.get_pull_requests(
                 owner, repo, since=since, until=until,
-                per_page=50, include_body=True
+                state="all", per_page=50, merged_only=False, include_body=True
             )
 
         # 生成文件名
@@ -264,89 +264,116 @@ class GitHubService:
         filepath = output_path / filename
 
         # 生成 Markdown 内容
-        markdown_content = self._generate_progress_markdown(
-            repo, owner, issues, pull_requests, since, until, compact_mode
+        content = self._generate_markdown_content(
+            owner, repo, issues, pull_requests, since, until, compact_mode
         )
 
         # 写入文件
         with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(markdown_content)
+            f.write(content)
 
-        self.logger.info(f"每日进展报告已导出到: {filepath}")
+        self.logger.info(f"每日进展报告已导出: {filepath}")
         return str(filepath)
 
-    def _generate_progress_markdown(self, repo: str, owner: str, issues: List[Dict],
-                                   pull_requests: List[Dict], since: datetime,
-                                   until: datetime, compact_mode: bool = True) -> str:
-        """生成进展 Markdown 内容"""
-        date_range = f"{since.strftime('%Y-%m-%d %H:%M')} 至 {until.strftime('%Y-%m-%d %H:%M')}"
+    def _generate_markdown_content(self, owner: str, repo: str,
+                                  issues: List[Dict], pull_requests: List[Dict],
+                                  since: datetime, until: datetime,
+                                  compact_mode: bool) -> str:
+        """生成 Markdown 内容"""
+        date_str = until.strftime("%Y-%m-%d")
+        time_range = f"{since.strftime('%Y-%m-%d %H:%M')} 至 {until.strftime('%Y-%m-%d %H:%M')} (UTC)"
+        mode_str = "紧凑模式" if compact_mode else "完整模式"
 
-        content = f"""# {repo} 项目进展报告
+        content = f"""# {owner}/{repo} - 每日进展报告
 
-## 📅 时间范围：{date_range}
+**日期**: {date_str}  
+**时间范围**: {time_range}  
+**模式**: {mode_str}  
+**生成时间**: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC
+
+---
+
+## 📊 概览
+
+- **Pull Requests**: {len(pull_requests)} 个{'已合并' if compact_mode else ''}
+- **Issues**: {len(issues)} 个{'已关闭' if compact_mode else ''}
+
+---
+
+## 🔀 Pull Requests {f'(已合并)' if compact_mode else ''}
 
 """
-
-        # Pull Requests 部分（优先显示，因为更重要）
-        if compact_mode:
-            content += f"## ✅ 已合并 Pull Requests ({len(pull_requests)} 个)\n\n"
-        else:
-            content += f"## 🔄 Pull Requests 更新 ({len(pull_requests)} 个)\n\n"
 
         if pull_requests:
             for pr in pull_requests:
-                content += f"### #{pr['number']} {pr['title']}\n"
-                content += f"- **状态**: {pr['state']}"
-                if pr['merged_at']:
-                    merged_time = datetime.fromisoformat(pr['merged_at'].replace('Z', '+00:00'))
-                    content += f" (已合并: {merged_time.strftime('%m-%d %H:%M')})"
-                content += "\n"
+                status_icon = "✅" if pr.get('merged_at') else ("🔀" if pr['state'] == 'open' else "❌")
+                merge_info = f" - 合并时间: {pr['merged_at']}" if pr.get('merged_at') else ""
+                draft_info = " 📝" if pr.get('draft') else ""
+
+                content += f"### {status_icon} #{pr['number']} {pr['title']}{draft_info}\n\n"
                 content += f"- **作者**: {pr['user']}\n"
-                content += f"- **分支**: `{pr['head_branch']}` → `{pr['base_branch']}`\n"
+                content += f"- **状态**: {pr['state']}\n"
+                content += f"- **分支**: {pr['head_branch']} → {pr['base_branch']}\n"
+                content += f"- **创建时间**: {pr['created_at']}\n"
+                if merge_info:
+                    content += merge_info + "\n"
+                content += f"- **链接**: [{pr['html_url']}]({pr['html_url']})\n"
 
-                if not compact_mode:
-                    content += f"- **链接**: [{pr['html_url']}]({pr['html_url']})\n"
-                    if pr.get('body'):
-                        content += f"- **描述**: {pr['body']}\n"
+                if not compact_mode and pr.get('body'):
+                    content += f"- **描述**: {pr['body']}\n"
+
                 content += "\n"
         else:
-            content += "暂无相关 Pull Requests\n\n"
+            content += f"无{'已合并' if compact_mode else ''}的 Pull Requests\n\n"
 
-        # Issues 部分
-        if compact_mode:
-            content += f"## 🐛 待处理 Issues ({len(issues)} 个)\n\n"
-        else:
-            content += f"## 📋 Issues 更新 ({len(issues)} 个)\n\n"
+        content += f"""---
+
+## 🐛 Issues {f'(已关闭)' if compact_mode else ''}
+
+"""
 
         if issues:
             for issue in issues:
-                content += f"### #{issue['number']} {issue['title']}\n"
+                status_icon = "✅" if issue['state'] == 'closed' else "🔴"
+                labels_info = f" 🏷️ {', '.join(issue['labels'])}" if issue.get('labels') else ""
+
+                content += f"### {status_icon} #{issue['number']} {issue['title']}{labels_info}\n\n"
+                content += f"- **作者**: {issue['user']}\n"
                 content += f"- **状态**: {issue['state']}\n"
-                content += f"- **创建者**: {issue['user']}\n"
-
-                if not compact_mode:
-                    content += f"- **更新时间**: {issue['updated_at']}\n"
-                    content += f"- **链接**: [{issue['html_url']}]({issue['html_url']})\n"
-
-                if issue.get('labels'):
-                    content += f"- **标签**: {', '.join(issue['labels'])}\n"
+                content += f"- **创建时间**: {issue['created_at']}\n"
+                content += f"- **更新时间**: {issue['updated_at']}\n"
+                content += f"- **链接**: [{issue['html_url']}]({issue['html_url']})\n"
 
                 if not compact_mode and issue.get('body'):
                     content += f"- **描述**: {issue['body']}\n"
+
                 content += "\n"
         else:
-            content += "暂无相关 Issues\n\n"
+            content += f"无{'已关闭' if compact_mode else ''}的 Issues\n\n"
 
-        # 统计信息
-        content += f"""## 📊 统计摘要
+        content += """---
 
-- **时间范围**: {(until - since).total_seconds() / 3600:.1f} 小时
-- **已合并 PR**: {len([pr for pr in pull_requests if pr.get('merged_at')])} 个
-- **待处理 Issues**: {len([issue for issue in issues if issue['state'] == 'open'])} 个
+## 📈 统计信息
 
----
-*报告生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*
-*模式: {'紧凑模式' if compact_mode else '详细模式'}*
 """
+        if compact_mode:
+            content += f"- 已合并 PR: {len(pull_requests)}\n"
+            content += f"- 已关闭 Issues: {len(issues)}\n"
+        else:
+            # 完整模式的统计
+            merged_prs = len([pr for pr in pull_requests if pr.get('merged_at')])
+            open_prs = len([pr for pr in pull_requests if pr['state'] == 'open'])
+            closed_prs = len([pr for pr in pull_requests if pr['state'] == 'closed' and not pr.get('merged_at')])
+
+            open_issues = len([issue for issue in issues if issue['state'] == 'open'])
+            closed_issues = len([issue for issue in issues if issue['state'] == 'closed'])
+
+            content += f"- 已合并 PR: {merged_prs}\n"
+            content += f"- 开放 PR: {open_prs}\n"
+            content += f"- 已关闭 PR: {closed_prs}\n"
+            content += f"- 开放 Issues: {open_issues}\n"
+            content += f"- 已关闭 Issues: {closed_issues}\n"
+
+        content += f"\n**报告生成工具**: GitHub Sentinel v0.2\n"
 
         return content

@@ -433,10 +433,10 @@ class GitHubSentinelCLI:
 
         # 创建订阅
         subscription = Subscription(
-            repository_url=args.repo_url,
+            repo_url=args.repo_url,
             owner=repo_info['owner'],
-            repository_name=repo_info['repo'],
-            update_frequency=UpdateFrequency(args.frequency),
+            repo_name=repo_info['repo'],
+            frequency=UpdateFrequency(args.frequency),
             notification_types=[NotificationType(n) for n in args.notifications],
             update_types=[UpdateType(t) for t in args.update_types if t != 'all'] or list(UpdateType)
         )
@@ -459,8 +459,8 @@ class GitHubSentinelCLI:
         else:
             print(f"共有 {len(subscriptions)} 个订阅:")
             for i, sub in enumerate(subscriptions, 1):
-                print(f"{i}. {sub.repository_url}")
-                print(f"   频率: {sub.update_frequency.value}")
+                print(f"{i}. {sub.repo_url}")
+                print(f"   频率: {sub.frequency.value}")
                 print(f"   通知: {[n.value for n in sub.notification_types]}")
                 print(f"   类型: {[t.value for t in sub.update_types]}")
                 print()

@@ -153,98 +153,67 @@ class ReportService:
 
         return results
 
-    async def compare_llm_reports(self,
-                                 repo: str,
-                                 progress_file: str,
-                                 templates: List[str],
-                                 providers: List[str]) -> Dict[str, str]:
-        """比较不同LLM模型和模板生成的报告"""
-        results = {}
-
-        # 读取进展文件内容
-        with open(progress_file, 'r', encoding='utf-8') as f:
-            progress_content = f.read()
-
-        for template in templates:
-            for provider in providers:
-                try:
-                    # 生成报告标识
-                    report_key = f"{template}_{provider}"
-
-                    # 生成报告
-                    summary_file = await self.llm_service.generate_summary_report(
-                        repo_name=f"{repo}_{report_key}",
-                        markdown_content=progress_content,
-                        template_name=template,
-                        provider_name=provider,
-                        output_dir=str(self.daily_progress_dir)
-                    )
-
-                    results[report_key] = summary_file
-                    self.logger.info(f"已生成对比报告: {report_key}")
-
-                except Exception as e:
-                    self.logger.error(f"生成对比报告 {report_key} 失败: {str(e)}")
-                    results[report_key] = f"ERROR: {str(e)}"
-
-        return results
-
     async def generate_report_with_multiple_templates(self,
                                                     owner: str,
                                                     repo: str,
                                                     templates: List[str],
-                                                    provider_name: Optional[str] = None,
-                                                    **llm_kwargs) -> Dict[str, str]:
-        """使用多个模板生成报告进行对比"""
+                                                    provider_name: Optional[str] = None) -> Dict[str, str]:
+        """使用多个模板生成对比报告"""
         try:
-            # 1. 生成原始进展报告
-            progress_file = await self.generate_daily_progress_report(owner, repo)
+            # 先生成原始进展报告（使用紧凑模式节省token）
+            progress_file = await self.generate_daily_progress_report(
+                owner, repo, compact_mode=True
+            )
 
-            # 2. 使用多个模板生成摘要报告
-            results = {
-                "progress_report": progress_file,
-                "repository": f"{owner}/{repo}",
-                "generated_at": datetime.now().isoformat(),
-                "summaries": {}
-            }
-
-            # 读取进展内容
-            with open(progress_file, 'r', encoding='utf-8') as f:
-                progress_content = f.read()
-
+            summaries = {}
             for template in templates:
                 try:
-                    summary_file = await self.llm_service.generate_summary_report(
-                        repo_name=f"{repo}_{template.replace('.txt', '')}",
-                        markdown_content=progress_content,
-                        template_name=template,
-                        provider_name=provider_name,
-                        output_dir=str(self.daily_progress_dir),
-                        **llm_kwargs
+                    summary_file = await self.generate_llm_summary_report(
+                        repo, progress_file, template, provider_name, max_tokens=1200
                     )
-                    results["summaries"][template] = summary_file
-
+                    summaries[template] = summary_file
                 except Exception as e:
-                    self.logger.error(f"使用模板 {template} 生成报告失败: {str(e)}")
-                    results["summaries"][template] = f"ERROR: {str(e)}"
+                    summaries[template] = f"ERROR: {str(e)}"
 
-            return results
+            return {
+                "progress_report": progress_file,
+                "summaries": summaries,
+                "repository": f"{owner}/{repo}",
+                "generated_at": datetime.now().isoformat()
+            }
 
         except Exception as e:
-            self.logger.error(f"生成多模板报告失败: {str(e)}")
+            self.logger.error(f"生成多模板对比报告失败: {str(e)}")
             raise
 
     def get_report_history(self, repo: str, limit: int = 10) -> List[str]:
-        """获取仓库的报告历史"""
+        """获取指定仓库的报告历史"""
         try:
             pattern = f"{repo}_*.md"
             files = list(self.daily_progress_dir.glob(pattern))
-            files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+            # 按文件名排序（包含日期）
+            files.sort(key=lambda x: x.name, reverse=True)
             return [str(f) for f in files[:limit]]
-
         except Exception as e:
             self.logger.error(f"获取报告历史失败: {str(e)}")
             return []
+
+    def export_report_summary(self, reports: List[Dict], output_file: Optional[str] = None) -> str:
+        """导出报告摘要到JSON文件"""
+        try:
+            if not output_file:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_file = str(self.reports_dir / f"report_summary_{timestamp}.json")
+
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(reports, f, indent=2, ensure_ascii=False, default=str)
+
+            self.logger.info(f"报告摘要已导出: {output_file}")
+            return output_file
+
+        except Exception as e:
+            self.logger.error(f"导出报告摘要失败: {str(e)}")
+            raise
 
     async def generate_legacy_report(self, updates: List[RepositoryUpdate]) -> Report:
         """生成传统格式报告（保持向后兼容）"""

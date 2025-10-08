@@ -147,4 +147,7 @@ data/reports/
 *.db
 *.sqlite
 test_*.json
+tests/daily_progress/
+tests/data/
+tests/MagicMock/
 daily_progress/

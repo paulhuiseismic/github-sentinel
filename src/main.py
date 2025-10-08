@@ -23,7 +23,7 @@ from src.utils.logger import setup_logger
 class GitHubSentinel:
     def __init__(self, config_path: str = None):
         """初始化GitHub Sentinel"""
-        self.settings = Settings.load_from_file(config_path)
+        self.settings = Settings.from_config_file(config_path)
         self.logger = setup_logger(self.settings.log_level)
 
         # 初始化服务

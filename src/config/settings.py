@@ -96,8 +96,11 @@ class Settings:
     log_file: str = "logs/github_sentinel.log"
 
     @classmethod
-    def from_config_file(cls, config_path: str = "src/config/config.yaml") -> "Settings":
+    def from_config_file(cls, config_path: str = None) -> "Settings":
         """从配置文件加载设置"""
+        if config_path is None:
+            config_path = "src/config/config.yaml"
+
         config_file = Path(config_path)
 
         if not config_file.exists():

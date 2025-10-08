@@ -27,7 +27,7 @@ class TestSubscriptionService(unittest.TestCase):
         self.settings = Settings(
             github=GitHubConfig(token="test_token"),
             notification=NotificationConfig(),
-            database=DatabaseConfig(path="test_subscriptions.json")
+            database=DatabaseConfig()
         )
         self.service = SubscriptionService(self.settings)
 
