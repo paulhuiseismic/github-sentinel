@@ -1,0 +1,23 @@
+[
+  {
+    "owner": "microsoft",
+    "repo": "vscode"
+  },
+  {
+    "owner": "facebook",
+    "repo": "react"
+  },
+  {
+    "owner": "tensorflow",
+    "repo": "tensorflow"
+  },
+  {
+    "owner": "pytorch",
+    "repo": "pytorch"
+  },
+  {
+    "owner": "langchain-ai",
+    "repo": "langchain"
+  }
+]
+

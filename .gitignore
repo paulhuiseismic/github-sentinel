@@ -147,3 +147,4 @@ data/reports/
 *.db
 *.sqlite
 test_*.json
+daily_progress/

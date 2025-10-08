@@ -18,6 +18,14 @@ database:
   type: json
   path: data/subscriptions.json
 
+llm:
+  azure_endpoint: null  # 设置环境变量 AZURE_OPENAI_ENDPOINT
+  azure_api_key: null   # 设置环境变量 AZURE_OPENAI_API_KEY
+  azure_api_version: "2024-02-15-preview"
+  default_model: "gpt-4"
+  temperature: 0.7
+  max_tokens: 2000
+
 log_level: INFO
 log_file: logs/github_sentinel.log
 daily_scan_time: "09:00"
