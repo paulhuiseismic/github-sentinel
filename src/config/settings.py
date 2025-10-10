@@ -85,32 +85,114 @@ class Settings:
     """主配置类"""
     github: GitHubConfig
     llm_providers: List[LLMProviderConfig] = field(default_factory=list)
-    report: ReportConfig = field(default_factory=ReportConfig)
-    database: DatabaseConfig = field(default_factory=DatabaseConfig)
-    scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     notification: NotificationConfig = field(default_factory=NotificationConfig)
-
-    # 全局设置
-    debug: bool = False
+    database: DatabaseConfig = field(default_factory=DatabaseConfig)
+    report: ReportConfig = field(default_factory=ReportConfig)
     log_level: str = "INFO"
     log_file: str = "logs/github_sentinel.log"
+    daily_scan_time: str = "09:00"
+    weekly_scan_time: str = "09:00"
+    weekly_scan_day: str = "monday"
+    max_concurrent_requests: int = 5
 
     @classmethod
-    def from_config_file(cls, config_path: str = None) -> "Settings":
-        """从配置文件加载设置"""
+    def from_config_file(cls, config_path: Optional[str] = None) -> "Settings":
+        """从配置文件创建设置"""
+        # 默认配置文件路径
         if config_path is None:
-            config_path = "src/config/config.yaml"
+            config_path = Path(__file__).parent / "config.yaml"
 
-        config_file = Path(config_path)
+        config_data = {}
+        if Path(config_path).exists():
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config_data = yaml.safe_load(f) or {}
 
-        if not config_file.exists():
-            # 创建默认配置文件
-            cls._create_default_config(config_file)
+        # 处理GitHub配置 - 优先从环境变量获取token
+        github_config = config_data.get("github", {})
+        github_token = os.getenv("GITHUB_TOKEN") or github_config.get("token")
 
-        with open(config_file, 'r', encoding='utf-8') as f:
-            config_data = yaml.safe_load(f)
+        if not github_token or github_token == "null" or github_token is None:
+            # 尝试从其他可能的环境变量获取
+            github_token = (
+                os.getenv("GH_TOKEN") or
+                os.getenv("GITHUB_ACCESS_TOKEN") or
+                ""
+            )
 
-        return cls._from_dict(config_data)
+        github = GitHubConfig(
+            token=github_token,
+            api_url=github_config.get("api_url", "https://api.github.com"),
+            rate_limit_per_hour=github_config.get("rate_limit_per_hour", 5000),
+            timeout=github_config.get("timeout", 30)
+        )
+
+        # LLM 提供商配置
+        llm_providers = []
+
+        # Azure OpenAI 配置
+        if os.getenv("AZURE_OPENAI_API_KEY"):
+            azure_provider = LLMProviderConfig(
+                name="azure_openai",
+                type="azure_openai",
+                model_name=os.getenv("AZURE_OPENAI_MODEL", "gpt-4"),
+                api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+                azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+                api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+                is_default=True
+            )
+            llm_providers.append(azure_provider)
+
+        # OpenAI 配置
+        if os.getenv("OPENAI_API_KEY"):
+            openai_provider = LLMProviderConfig(
+                name="openai",
+                type="openai",
+                model_name=os.getenv("OPENAI_MODEL", "gpt-4"),
+                api_key=os.getenv("OPENAI_API_KEY"),
+                is_default=len(llm_providers) == 0  # 如果没有其他提供商则设为默认
+            )
+            llm_providers.append(openai_provider)
+
+        notification = NotificationConfig(
+            enabled=config_data.get("notification", {}).get("enabled", False),
+            email_enabled=config_data.get("notification", {}).get("email_enabled", False),
+            smtp_server=config_data.get("notification", {}).get("smtp_server", ""),
+            smtp_port=config_data.get("notification", {}).get("smtp_port", 587),
+            smtp_username=config_data.get("notification", {}).get("smtp_username", ""),
+            smtp_password=config_data.get("notification", {}).get("smtp_password", ""),
+            recipients=config_data.get("notification", {}).get("recipients", [])
+        )
+
+        database = DatabaseConfig(
+            url=config_data.get("database", {}).get("url", "sqlite:///github_sentinel.db"),
+            path=config_data.get("database", {}).get("path", "data/subscriptions.json"),  # 添加path属性用于JSON文件存储
+            echo=config_data.get("database", {}).get("echo", False)
+        )
+
+        report = ReportConfig(
+            daily_progress_dir=config_data.get("report", {}).get("daily_progress_dir", "daily_progress"),
+            reports_dir=config_data.get("report", {}).get("reports_dir", "data/reports"),
+            default_template=config_data.get("report", {}).get("default_template", "github_azure_prompt.txt"),
+            templates_dir=config_data.get("report", {}).get("templates_dir", "prompts"),
+            output_formats=config_data.get("report", {}).get("output_formats", ["markdown", "json"]),
+            enable_llm_summary=config_data.get("report", {}).get("enable_llm_summary", True),
+            batch_size=config_data.get("report", {}).get("batch_size", 5),
+            retry_attempts=config_data.get("report", {}).get("retry_attempts", 3)
+        )
+
+        return cls(
+            github=github,
+            llm_providers=llm_providers,
+            notification=notification,
+            database=database,
+            report=report,
+            log_level=config_data.get("log_level", "INFO"),
+            log_file=config_data.get("log_file", "logs/github_sentinel.log"),
+            daily_scan_time=config_data.get("daily_scan_time", "09:00"),
+            weekly_scan_time=config_data.get("weekly_scan_time", "09:00"),
+            weekly_scan_day=config_data.get("weekly_scan_day", "monday"),
+            max_concurrent_requests=config_data.get("max_concurrent_requests", 5)
+        )
 
     @classmethod
     def from_env(cls) -> "Settings":

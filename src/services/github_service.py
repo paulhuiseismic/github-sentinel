@@ -13,6 +13,36 @@ from pathlib import Path
 from ..models.repository import Repository, RepositoryUpdate
 
 
+def parse_github_datetime(date_string: str) -> datetime:
+    """解析GitHub API返回的时间字符串，确保返回timezone-aware的datetime"""
+    if date_string.endswith('Z'):
+        # GitHub API通常返回UTC时间，以'Z'结尾
+        date_string = date_string.replace('Z', '+00:00')
+
+    try:
+        dt = datetime.fromisoformat(date_string)
+        # 确保是timezone-aware的
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except ValueError:
+        # 如果解析失败，返回当前UTC时间
+        return datetime.now(timezone.utc)
+
+
+def ensure_utc_datetime(dt: datetime) -> datetime:
+    """确保datetime是UTC时区的timezone-aware对象"""
+    if dt is None:
+        return None
+
+    if dt.tzinfo is None:
+        # 如果是naive datetime，假设它是UTC时间
+        return dt.replace(tzinfo=timezone.utc)
+    else:
+        # 如果已经有时区信息，转换为UTC
+        return dt.astimezone(timezone.utc)
+
+
 class GitHubService:
     """GitHub API 服务类"""
 
@@ -27,13 +57,13 @@ class GitHubService:
         }
         self.rate_limit_per_hour = rate_limit_per_hour
         self.requests_made = 0
-        self.last_reset = datetime.now()
+        self.last_reset = datetime.now(timezone.utc)
         self.timeout = timeout
         self.logger = logging.getLogger(__name__)
 
     async def _check_rate_limit(self):
         """检查API速率限制"""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         if (now - self.last_reset).total_seconds() > 3600:
             self.requests_made = 0
             self.last_reset = now
@@ -44,7 +74,7 @@ class GitHubService:
                 self.logger.warning(f"达到速率限制，等待 {wait_time:.0f} 秒")
                 await asyncio.sleep(wait_time)
                 self.requests_made = 0
-                self.last_reset = datetime.now()
+                self.last_reset = datetime.now(timezone.utc)
 
     async def _make_request(self, url: str, params: Optional[Dict] = None) -> Dict:
         """发起API请求"""
@@ -88,12 +118,15 @@ class GitHubService:
             language=data.get('language', ''),
             stars=data['stargazers_count'],
             forks=data['forks_count'],
-            updated_at=datetime.fromisoformat(data['updated_at'].replace('Z', '+00:00')),
-            created_at=datetime.fromisoformat(data['created_at'].replace('Z', '+00:00'))
+            updated_at=parse_github_datetime(data['updated_at']),
+            created_at=parse_github_datetime(data['created_at'])
         )
 
     async def get_repository_updates(self, owner: str, repo: str, since: datetime) -> List[RepositoryUpdate]:
         """获取仓库更新信息"""
+        # 确保since参数是timezone-aware的
+        since = ensure_utc_datetime(since)
+
         # 获取最新的commits
         commits_url = f"{self.base_url}/repos/{owner}/{repo}/commits"
         params = {
@@ -110,7 +143,7 @@ class GitHubService:
                 title=commit['commit']['message'].split('\n')[0],
                 description=commit['commit']['message'],
                 author=commit['commit']['author']['name'],
-                created_at=datetime.fromisoformat(commit['commit']['author']['date'].replace('Z', '+00:00')),
+                created_at=parse_github_datetime(commit['commit']['author']['date']),
                 html_url=commit['html_url']
             ))
 
@@ -129,6 +162,7 @@ class GitHubService:
         }
 
         if since:
+            since = ensure_utc_datetime(since)
             params['since'] = since.isoformat()
 
         data = await self._make_request(url, params)
@@ -139,7 +173,8 @@ class GitHubService:
             if 'pull_request' not in item:
                 # 时间过滤
                 if until:
-                    updated_at = datetime.fromisoformat(item['updated_at'].replace('Z', '+00:00'))
+                    until = ensure_utc_datetime(until)
+                    updated_at = parse_github_datetime(item['updated_at'])
                     if updated_at > until:
                         continue
 
@@ -151,14 +186,11 @@ class GitHubService:
                     'created_at': item['created_at'],
                     'updated_at': item['updated_at'],
                     'html_url': item['html_url'],
-                    'labels': [label['name'] for label in item.get('labels', [])]
+                    'labels': [label['name'] for label in item['labels']]
                 }
 
-                # 可选包含body内容
-                if include_body and item.get('body'):
-                    # 限制描述长度，减少token使用
-                    body = item['body'][:150] + "..." if len(item['body']) > 150 else item['body']
-                    issue_data['body'] = body
+                if include_body:
+                    issue_data['body'] = item.get('body', '')
 
                 issues.append(issue_data)
 

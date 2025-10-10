@@ -2,7 +2,7 @@
 订阅数据模型
 """
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from enum import Enum
 import uuid
@@ -32,6 +32,31 @@ class UpdateType(Enum):
     ALL = "all"
 
 
+def utc_now():
+    """获取UTC时间的datetime对象"""
+    return datetime.now(timezone.utc)
+
+
+def ensure_timezone_aware(dt: datetime) -> datetime:
+    """确保datetime对象是timezone-aware的"""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        # 如果是naive datetime，假设它是UTC时间
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def ensure_timezone_naive(dt: datetime) -> datetime:
+    """确保datetime对象是timezone-naive的"""
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        # 如果是aware datetime，转换为UTC然后移除时区信息
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
 @dataclass
 class Subscription:
     """订阅模型"""
@@ -42,7 +67,7 @@ class Subscription:
     frequency: UpdateFrequency
     update_types: List[UpdateType] = field(default_factory=lambda: [UpdateType.ALL])
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_checked: Optional[datetime] = None
     is_active: bool = True
     filters: Optional[Dict[str, Any]] = None
@@ -70,16 +95,29 @@ class Subscription:
             else:
                 update_types.append(ut)
 
-        # 处理时间字段
+        # 处理时间字段 - 确保时区一致性
         created_at = data.get('created_at')
         if isinstance(created_at, str):
-            created_at = datetime.fromisoformat(created_at)
+            try:
+                # 尝试解析ISO格式时间
+                created_at = datetime.fromisoformat(created_at)
+                created_at = ensure_timezone_aware(created_at)
+            except ValueError:
+                created_at = datetime.now(timezone.utc)
         elif created_at is None:
-            created_at = datetime.now()
+            created_at = datetime.now(timezone.utc)
+        else:
+            created_at = ensure_timezone_aware(created_at)
 
         last_checked = data.get('last_checked')
         if isinstance(last_checked, str):
-            last_checked = datetime.fromisoformat(last_checked)
+            try:
+                last_checked = datetime.fromisoformat(last_checked)
+                last_checked = ensure_timezone_aware(last_checked)
+            except ValueError:
+                last_checked = None
+        elif last_checked is not None:
+            last_checked = ensure_timezone_aware(last_checked)
 
         return cls(
             id=data.get('id', str(uuid.uuid4())),
@@ -106,7 +144,7 @@ class Subscription:
             'notification_types': [nt.value for nt in self.notification_types],
             'frequency': self.frequency.value,
             'update_types': [ut.value for ut in self.update_types],
-            'created_at': self.created_at.isoformat(),
+            'created_at': self.created_at.isoformat() if self.created_at else None,
             'last_checked': self.last_checked.isoformat() if self.last_checked else None,
             'is_active': self.is_active,
             'filters': self.filters,
