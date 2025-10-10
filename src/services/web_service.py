@@ -29,7 +29,14 @@ class WebService:
 
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.logger = setup_logger(settings.log_level)  # 首先初始化logger
+        # 使用新的日志配置，为Web服务创建专门的logger
+        self.logger = setup_logger(
+            settings.log_level,
+            settings.log_file,
+            "github_sentinel.web"
+        )
+
+        self.logger.info("🌐 初始化Web服务...")
         self.subscription_service = SubscriptionService(settings)
 
         # 修复GitHubService初始化 - 更好的token获取和验证
@@ -44,6 +51,8 @@ class WebService:
             self.logger.warning("获取GitHub Token: https://github.com/settings/tokens")
             # 使用空token创建服务，但会在使用时提供友好的错误信息
             github_token = ""
+        else:
+            self.logger.info("✅ GitHub Token已配置")
 
         self.github_service = GitHubService(github_token)
         self.llm_service = LLMService()
@@ -54,6 +63,8 @@ class WebService:
         self.report_service = ReportService(self.llm_service, self.github_service)
         self.update_service = UpdateService(settings)
         self.app = None
+
+        self.logger.info("✅ Web服务初始化完成")
 
     def _setup_llm_providers(self):
         """设置LLM提供商"""
@@ -321,11 +332,15 @@ class WebService:
     def _generate_repo_report(self, selected_repo: str, report_type: str, days: int) -> str:
         """为特定仓库生成LLM摘要报告"""
         try:
+            self.logger.info(f"📊 Web界面请求生成报告: {selected_repo}, 类型: {report_type}, 天数: {days}")
+
             if not selected_repo:
+                self.logger.warning("❌ 生成报告时未选择仓库")
                 return "❌ 请先选择一个仓库"
 
             # 检查GitHub token是否有效
             if not self.github_service.token or self.github_service.token.strip() == "":
+                self.logger.error("❌ GitHub Token未配置，无法生成报告")
                 return """❌ GitHub Token未配置！
 
 请按以下步骤设置GitHub Token：
@@ -347,7 +362,8 @@ github:
             # 解析仓库名称
             parts = selected_repo.split("/")
             if len(parts) != 2:
-                return "❌ 无效的仓库���式"
+                self.logger.error(f"❌ 无效的仓库格式: {selected_repo}")
+                return "❌ 无效的仓库格式"
 
             owner, repo_name = parts[0], parts[1]
 
@@ -358,12 +374,15 @@ github:
                 days = 7
             # custom类型使用滑块的值
 
+            self.logger.info(f"开始为 {owner}/{repo_name} 生成 {days} 天的报告")
+            from datetime import timedelta, timezone
+            start_time = datetime.now()
+
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
             try:
                 # 生成完整的每日报告（包括LLM摘要）
-                from datetime import datetime, timedelta, timezone
                 # 确保使用timezone-aware的datetime对象
                 since = datetime.now(timezone.utc) - timedelta(days=days)
 
@@ -384,16 +403,23 @@ github:
                     with open(summary_file, 'r', encoding='utf-8') as f:
                         summary_content = f.read()
 
+                    duration = (datetime.now() - start_time).total_seconds()
+                    self.logger.info(f"✅ Web界面成功生成报告: {selected_repo}, 耗时: {duration:.2f}秒")
+
                     report_header = f"📊 {selected_repo} - {report_type.upper()}报告 ({days}天)\n"
                     report_header += f"生成时间: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC\n"
                     report_header += "=" * 60 + "\n\n"
 
                     return report_header + summary_content
                 else:
+                    self.logger.error(f"❌ 未找到摘要报告文件: {summary_file}")
                     return f"❌ 未能找到摘要报告文件: {summary_file}"
 
             except Exception as e:
+                duration = (datetime.now() - start_time).total_seconds()
                 error_msg = str(e)
+                self.logger.error(f"❌ Web界面生成报告失败: {selected_repo}, 耗时: {duration:.2f}秒, 错误: {error_msg}", exc_info=True)
+
                 if "401" in error_msg:
                     return """❌ GitHub API认证失败 (401)
 
@@ -423,6 +449,7 @@ github:
                 loop.close()
 
         except Exception as e:
+            self.logger.error(f"❌ Web界面处理报告请求时出错: {str(e)}", exc_info=True)
             return f"❌ 处理请求时出错: {str(e)}"
 
     def _create_status_tab(self):
@@ -466,15 +493,20 @@ github:
     def _add_subscription(self, repo_url: str, frequency: str, notification_types: List[str], update_types: List[str]) -> str:
         """添加新订阅"""
         try:
+            self.logger.info(f"📝 Web界面请求添加订阅: {repo_url}")
+
             if not repo_url or not repo_url.startswith("https://github.com/"):
+                self.logger.warning(f"❌ 无效的仓库URL: {repo_url}")
                 return "❌ 请输入有效的GitHub仓库URL"
 
             # 解析仓库URL
             parts = repo_url.replace("https://github.com/", "").split("/")
             if len(parts) < 2:
+                self.logger.warning(f"❌ 无效的仓库URL格式: {repo_url}")
                 return "❌ 无效的GitHub仓库URL格式"
 
             owner, repo_name = parts[0], parts[1]
+            self.logger.info(f"解析仓库信息: {owner}/{repo_name}, 频率: {frequency}")
 
             # 创建订阅对象
             subscription = Subscription(
@@ -493,24 +525,31 @@ github:
             loop.close()
 
             if success:
+                self.logger.info(f"✅ Web界面成功添加订阅: {owner}/{repo_name}")
                 return f"✅ 成功添加订阅: {owner}/{repo_name}"
             else:
+                self.logger.warning(f"⚠️  Web界面添加订阅失败，可能重复: {owner}/{repo_name}")
                 return "❌ 添加订阅失败，可能已存在相同订阅"
 
         except Exception as e:
+            self.logger.error(f"❌ Web界面添加订阅时出错: {str(e)}", exc_info=True)
             return f"❌ 添加订阅时出错: {str(e)}"
 
     def _get_subscriptions_df(self) -> pd.DataFrame:
         """获取订阅列表DataFrame"""
         try:
+            self.logger.debug("🔍 Web界面请求获取订阅列表")
+
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             subscriptions = loop.run_until_complete(self.subscription_service.get_all_subscriptions())
             loop.close()
 
             if not subscriptions:
+                self.logger.info("📋 当前没有订阅")
                 return pd.DataFrame(columns=["ID", "仓库", "频率", "通知方式", "状态", "创建时间"])
 
+            self.logger.info(f"📋 获取到 {len(subscriptions)} 个订阅")
             data = []
             for sub in subscriptions:
                 notification_str = ", ".join([nt.value for nt in sub.notification_types])
@@ -529,29 +568,34 @@ github:
             return pd.DataFrame(data, columns=["ID", "仓库", "频率", "通知方式", "状态", "创建时间"])
 
         except Exception as e:
-            self.logger.error(f"获取订阅列表失败: {e}")
+            self.logger.error(f"❌ Web界面获取订阅列表失败: {e}", exc_info=True)
             return pd.DataFrame(columns=["ID", "仓库", "频率", "通知方式", "状态", "创建时间"])
 
     def _delete_subscription(self, subscription_id: str) -> Tuple[str, pd.DataFrame]:
         """删除订阅"""
         try:
+            self.logger.info(f"🗑️ Web界面请求删除订阅: {subscription_id}")
+
             if not subscription_id:
+                self.logger.warning("❌ 删除订阅时未提供ID")
                 return "❌ 请输入订阅ID", self._get_subscriptions_df()
 
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            # 修改为正确的方法名
             success = loop.run_until_complete(self.subscription_service.delete_subscription(subscription_id))
             loop.close()
 
             if success:
+                self.logger.info(f"✅ Web界面成功删除订阅: {subscription_id}")
                 result = f"✅ 成功删除订阅 {subscription_id}"
             else:
+                self.logger.warning(f"⚠️  Web界面删除订阅失败，未找到: {subscription_id}")
                 result = f"❌ 删除失败，未找到订阅 {subscription_id}"
 
             return result, self._get_subscriptions_df()
 
         except Exception as e:
+            self.logger.error(f"❌ Web界面删除订阅时出错: {str(e)}", exc_info=True)
             return f"❌ 删除订阅时出错: {str(e)}", self._get_subscriptions_df()
 
     def _generate_report(self, report_type: str, days: int) -> str:

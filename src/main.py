@@ -26,7 +26,18 @@ class GitHubSentinel:
     def __init__(self, config_path: str = None):
         """初始化GitHub Sentinel"""
         self.settings = Settings.from_config_file(config_path)
-        self.logger = setup_logger(self.settings.log_level)
+        # 使用新的日志配置，传递日志文件路径
+        self.logger = setup_logger(
+            self.settings.log_level,
+            self.settings.log_file,
+            "github_sentinel"
+        )
+
+        # 记录启动信息
+        self.logger.info("=" * 50)
+        self.logger.info("GitHub Sentinel 初始化中...")
+        self.logger.info(f"配置文件: {config_path or '默认配置'}")
+        self.logger.info(f"日志级别: {self.settings.log_level}")
 
         # 初始化服务
         self.subscription_service = SubscriptionService(self.settings)
@@ -43,6 +54,8 @@ class GitHubSentinel:
             self.logger.warning("获取GitHub Token: https://github.com/settings/tokens")
             # 使用空token创建服务，但会在使用时提供友好的错误信息
             github_token = ""
+        else:
+            self.logger.info("✅ GitHub Token已配置")
 
         self.github_service = GitHubService(github_token)
         self.update_service = UpdateService(self.settings)

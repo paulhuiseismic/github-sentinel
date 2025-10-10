@@ -10,6 +10,8 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 from src.main import GitHubSentinel
+from src.config.settings import Settings
+from src.utils.logger import setup_logger, cleanup_old_logs
 
 def main():
     """启动Web界面"""
@@ -17,7 +19,24 @@ def main():
     print("=" * 50)
 
     try:
+        # 首先设置日志
+        settings = Settings.from_config_file()
+        logger = setup_logger(
+            settings.log_level,
+            settings.log_file,
+            "github_sentinel_web"
+        )
+
+        # 清理旧日志文件
+        cleanup_old_logs("logs", 30)
+
+        logger.info("=" * 50)
+        logger.info("GitHub Sentinel Web界面启动中...")
+        logger.info("入口类型: Web界面")
+
         sentinel = GitHubSentinel()
+        logger.info("Web服务器配置: 0.0.0.0:7860")
+
         sentinel.start_web(
             server_name="0.0.0.0",
             server_port=7860,
@@ -30,8 +49,12 @@ def main():
         sys.exit(1)
     except KeyboardInterrupt:
         print("\n👋 Web界面已关闭")
+        if 'logger' in locals():
+            logger.info("Web界面被用户关闭")
     except Exception as e:
         print(f"❌ 启动失败: {e}")
+        if 'logger' in locals():
+            logger.error(f"Web界面启动失败: {e}", exc_info=True)
         sys.exit(1)
 
 if __name__ == "__main__":
