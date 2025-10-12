@@ -18,6 +18,9 @@ from src.services.llm_service import LLMService
 from src.services.report_service import ReportService
 from src.services.github_service import GitHubService
 from src.services.web_service import WebService
+from src.services.hackernews_service import HackerNewsService
+from src.services.hackernews_report_service import HackerNewsReportService
+from src.services.hackernews_update_service import HackerNewsUpdateService
 from src.utils.scheduler import TaskScheduler
 from src.utils.logger import get_main_logger
 
@@ -59,6 +62,14 @@ class GitHubSentinel:
         # 修复ReportService初始化
         self.llm_service = LLMService()
         self.report_service = ReportService(self.llm_service, self.github_service)
+
+        # 初始化Hacker News相关服务
+        self.hn_report_service = HackerNewsReportService(self.llm_service)
+        self.hn_update_service = HackerNewsUpdateService(
+            self.notification_service,
+            self.hn_report_service
+        )
+
         self.web_service = WebService(self.settings)
         self.scheduler = TaskScheduler()
 
@@ -104,6 +115,40 @@ class GitHubSentinel:
         except Exception as e:
             self.logger.error(f"每日扫描任务失败: {e}", exc_info=True)
 
+    async def run_hackernews_scan(self, hours: int = 24):
+        """执行Hacker News扫描任务"""
+        try:
+            self.logger.info(f"开始执行Hacker News扫描任务 - 过去{hours}小时")
+
+            # 生成报告
+            report_file = await self.hn_update_service.generate_hourly_report(hours=hours)
+
+            if report_file:
+                self.logger.info(f"Hacker News扫描完成，报告已保存: {report_file}")
+            else:
+                self.logger.info("Hacker News扫描完成，但没有生成新报告")
+
+        except Exception as e:
+            self.logger.error(f"Hacker News扫描任务失败: {e}", exc_info=True)
+
+    async def run_hackernews_daily_summary(self):
+        """生成Hacker News日度总结"""
+        try:
+            self.logger.info("开始生成Hacker News日度总结")
+            from datetime import datetime, timezone
+
+            # 生成当天的总结
+            today = datetime.now(timezone.utc)
+            summary_file = await self.hn_update_service.generate_daily_summary(today)
+
+            if summary_file:
+                self.logger.info(f"Hacker News日度总结生成完成: {summary_file}")
+            else:
+                self.logger.info("没有生成Hacker News日度总结")
+
+        except Exception as e:
+            self.logger.error(f"生成Hacker News日度总结失败: {e}", exc_info=True)
+
     async def run_weekly_scan(self):
         """执行每周扫描任务"""
         try:
@@ -143,6 +188,7 @@ class GitHubSentinel:
             weekly_day = getattr(self.settings, 'weekly_scan_day', "monday")
             weekly_time = getattr(self.settings, 'weekly_scan_time', "10:00")
 
+            # GitHub监控任务
             self.scheduler.schedule_daily_task(
                 self.run_daily_scan,
                 time=daily_time
@@ -153,9 +199,23 @@ class GitHubSentinel:
                 time=weekly_time
             )
 
+            # Hacker News监控任务 - 每小时执行一次
+            self.scheduler.schedule_hourly_task(
+                self.run_hackernews_scan,
+                minute=0  # 每小时的0分执行
+            )
+
+            # Hacker News日度总结 - 每天23:30生成
+            self.scheduler.schedule_daily_task(
+                self.run_hackernews_daily_summary,
+                time="23:30"
+            )
+
             # 启动调度器
             self.scheduler.start()
             self.logger.info("GitHub Sentinel 已启动，按 Ctrl+C 停止")
+            self.logger.info("✅ GitHub监控: 每日/每周扫描已启用")
+            self.logger.info("✅ Hacker News监控: 每小时扫描已启用")
 
             # 保持主线程运行
             try:

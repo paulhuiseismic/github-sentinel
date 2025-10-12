@@ -97,7 +97,7 @@ class DaemonProcess:
 
                 # 检查进程是否还在运行
                 if self.process.poll() is None:
-                    # 检查子进程是否已经写入了PID文��
+                    # 检查子进程是否已经写入了PID文件
                     for i in range(10):  # 最多等待10秒
                         if self.pid_file.exists():
                             break
@@ -364,6 +364,37 @@ class DaemonProcess:
                 pass
 
         self.remove_pid_file()
+
+    def get_service_status(self):
+        """获取服务状态信息"""
+        try:
+            status = {
+                "daemon_status": "running" if self.is_running else "stopped",
+                "pid": os.getpid() if self.is_running else None,
+                "github_sentinel": "active" if self.sentinel else "inactive",
+                "services": {
+                    "github_monitoring": True,
+                    "hackernews_monitoring": True,
+                    "web_interface": False  # 默认关闭
+                }
+            }
+
+            # 检查报告目录和文件
+            daily_progress_dir = Path("daily_progress")
+            if daily_progress_dir.exists():
+                reports = list(daily_progress_dir.glob("*.md"))
+                status["reports_count"] = len(reports)
+
+                # 获取最近的hackernews报告
+                hn_reports = [r for r in reports if "hackernews" in r.name.lower()]
+                if hn_reports:
+                    latest_hn = max(hn_reports, key=lambda x: x.stat().st_mtime)
+                    status["latest_hackernews_report"] = latest_hn.name
+
+            return status
+        except Exception as e:
+            self.logger.error(f"Failed to get service status: {e}")
+            return {"error": str(e)}
 
 
 def main():

@@ -28,6 +28,28 @@ class TaskScheduler:
         getattr(schedule.every(), day.lower()).at(time).do(self._schedule_async_task, task, "每周任务")
         self.logger.info(f"✅ 已调度每周任务，执行时间: {day} {time}")
 
+    def schedule_hourly_task(self, task: Callable, minute: int = 0):
+        """调度每小时任务"""
+        if not (0 <= minute <= 59):
+            raise ValueError("分钟数必须在0-59之间")
+
+        # 使用schedule库的每分钟检查，但只在指定分钟执行
+        def hourly_wrapper():
+            current_minute = datetime.now().minute
+            if current_minute == minute:
+                self._schedule_async_task(task, f"每小时任务(:{minute:02d})")
+
+        schedule.every().minute.do(hourly_wrapper)
+        self.logger.info(f"✅ 已调度每小时任务，执行时间: 每小时的第{minute}分钟")
+
+    def schedule_interval_task(self, task: Callable, minutes: int, task_name: str = "定时任务"):
+        """调度间隔任务"""
+        if minutes <= 0:
+            raise ValueError("间隔时间必须大于0分钟")
+
+        schedule.every(minutes).minutes.do(self._schedule_async_task, task, f"{task_name}(每{minutes}分钟)")
+        self.logger.info(f"✅ 已调度间隔任务: {task_name}，间隔: {minutes}分钟")
+
     def _schedule_async_task(self, task: Callable, task_name: str = "未知任务"):
         """调度异步任务"""
         self.logger.info(f"🔄 开始执行调度任务: {task_name}")

@@ -4,10 +4,11 @@
 import json
 import os
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Union
 from pathlib import Path
 
 from ..models.subscription import Subscription
+from ..models.hackernews import HackerNewsSubscription
 from ..config.settings import Settings
 
 
@@ -16,17 +17,22 @@ class SubscriptionService:
 
     def __init__(self, settings: Settings):
         self.settings = settings
+        # GitHub订阅数据文件
         self.data_file = Path(settings.database.path)
-        self._ensure_data_file_exists()
+        # Hacker News订阅数据文件
+        self.hn_data_file = Path(settings.database.path).parent / "hackernews_subscriptions.json"
+        self._ensure_data_files_exist()
 
-    def _ensure_data_file_exists(self):
+    def _ensure_data_files_exist(self):
         """确保数据文件存在"""
         self.data_file.parent.mkdir(parents=True, exist_ok=True)
         if not self.data_file.exists():
             self._save_subscriptions([])
+        if not self.hn_data_file.exists():
+            self._save_hn_subscriptions([])
 
     def _load_subscriptions(self) -> List[Subscription]:
-        """加载所有订阅"""
+        """加载所有GitHub订阅"""
         try:
             with open(self.data_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -36,7 +42,7 @@ class SubscriptionService:
             return []
 
     def _save_subscriptions(self, subscriptions: List[Subscription]):
-        """保存所有订阅"""
+        """保存所有GitHub订阅"""
         try:
             data = [sub.to_dict() for sub in subscriptions]
             with open(self.data_file, 'w', encoding='utf-8') as f:
@@ -45,25 +51,62 @@ class SubscriptionService:
             print(f"保存订阅失败: {e}")
             raise
 
+    def _load_hn_subscriptions(self) -> List[HackerNewsSubscription]:
+        """加载所有Hacker News订阅"""
+        try:
+            with open(self.hn_data_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return [HackerNewsSubscription.from_dict(item) for item in data]
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"加载Hacker News订阅失败: {e}")
+            return []
+
+    def _save_hn_subscriptions(self, subscriptions: List[HackerNewsSubscription]):
+        """保存所有Hacker News订阅"""
+        try:
+            data = [sub.to_dict() for sub in subscriptions]
+            with open(self.hn_data_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存Hacker News订阅失败: {e}")
+            raise
+
     async def get_all_subscriptions(self) -> List[Subscription]:
-        """获取所有订阅"""
+        """获取所有GitHub订阅"""
         return self._load_subscriptions()
 
+    async def get_all_hn_subscriptions(self) -> List[HackerNewsSubscription]:
+        """获取所有Hacker News订阅"""
+        return self._load_hn_subscriptions()
+
     async def get_active_subscriptions(self) -> List[Subscription]:
-        """获取活跃的订阅"""
+        """获取活跃的GitHub订阅"""
         subscriptions = self._load_subscriptions()
         return [sub for sub in subscriptions if sub.is_active]
 
+    async def get_active_hn_subscriptions(self) -> List[HackerNewsSubscription]:
+        """获取活跃的Hacker News订阅"""
+        subscriptions = self._load_hn_subscriptions()
+        return [sub for sub in subscriptions if sub.enabled]
+
     async def get_subscription_by_id(self, subscription_id: str) -> Optional[Subscription]:
-        """根据ID获取订阅"""
+        """根据ID获取GitHub订阅"""
         subscriptions = self._load_subscriptions()
         for sub in subscriptions:
             if sub.id == subscription_id:
                 return sub
         return None
 
+    async def get_hn_subscription_by_id(self, subscription_id: str) -> Optional[HackerNewsSubscription]:
+        """根据ID获取Hacker News订阅"""
+        subscriptions = self._load_hn_subscriptions()
+        for sub in subscriptions:
+            if sub.id == subscription_id:
+                return sub
+        return None
+
     async def add_subscription(self, subscription: Subscription) -> bool:
-        """添加新订阅"""
+        """添加新GitHub订阅"""
         try:
             subscriptions = self._load_subscriptions()
 
@@ -84,8 +127,28 @@ class SubscriptionService:
             print(f"添加订阅失败: {e}")
             return False
 
+    async def add_hn_subscription(self, subscription: HackerNewsSubscription) -> bool:
+        """添加新Hacker News订阅"""
+        try:
+            subscriptions = self._load_hn_subscriptions()
+
+            # 检查是否已存在相同的订阅
+            for existing in subscriptions:
+                if existing.id == subscription.id and existing.enabled:
+                    print(f"Hacker News订阅 {subscription.name} 已存在")
+                    return False
+
+            subscriptions.append(subscription)
+            self._save_hn_subscriptions(subscriptions)
+            print(f"成功添加Hacker News订阅: {subscription.name}")
+            return True
+
+        except Exception as e:
+            print(f"添加Hacker News订阅失败: {e}")
+            return False
+
     async def update_subscription(self, subscription: Subscription) -> bool:
-        """更新订阅"""
+        """更新GitHub订阅"""
         try:
             subscriptions = self._load_subscriptions()
 
@@ -101,6 +164,25 @@ class SubscriptionService:
 
         except Exception as e:
             print(f"更新订阅失败: {e}")
+            return False
+
+    async def update_hn_subscription(self, subscription: HackerNewsSubscription) -> bool:
+        """更新Hacker News订阅"""
+        try:
+            subscriptions = self._load_hn_subscriptions()
+
+            for i, existing in enumerate(subscriptions):
+                if existing.id == subscription.id:
+                    subscriptions[i] = subscription
+                    self._save_hn_subscriptions(subscriptions)
+                    print(f"成功更新Hacker News订阅: {subscription.name}")
+                    return True
+
+            print(f"未找到Hacker News订阅ID: {subscription.id}")
+            return False
+
+        except Exception as e:
+            print(f"更新Hacker News订阅失败: {e}")
             return False
 
     async def deactivate_subscription(self, subscription_id: str) -> bool:
@@ -122,8 +204,8 @@ class SubscriptionService:
             print(f"停用订阅失败: {e}")
             return False
 
-    async def delete_subscription(self, subscription_id: str) -> bool:
-        """删除订阅"""
+    async def remove_subscription(self, subscription_id: str) -> bool:
+        """删除GitHub订阅"""
         try:
             subscriptions = self._load_subscriptions()
             original_count = len(subscriptions)
@@ -140,6 +222,25 @@ class SubscriptionService:
 
         except Exception as e:
             print(f"删除订阅失败: {e}")
+            return False
+
+    async def remove_hn_subscription(self, subscription_id: str) -> bool:
+        """删除Hacker News订阅"""
+        try:
+            subscriptions = self._load_hn_subscriptions()
+
+            for subscription in subscriptions:
+                if subscription.id == subscription_id:
+                    subscription.enabled = False
+                    self._save_hn_subscriptions(subscriptions)
+                    print(f"成功删除Hacker News订阅: {subscription.name}")
+                    return True
+
+            print(f"未找到Hacker News订阅ID: {subscription_id}")
+            return False
+
+        except Exception as e:
+            print(f"删除Hacker News订阅失败: {e}")
             return False
 
     async def update_last_checked(self, subscription_ids: List[str]) -> bool:

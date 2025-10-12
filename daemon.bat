@@ -7,6 +7,7 @@ REM 设置UTF-8编码以正确显示中文
 
 set SCRIPT_DIR=%~dp0
 set PYTHON_SCRIPT=%SCRIPT_DIR%src\daemon_process.py
+set HACKERNEWS_CLI=%SCRIPT_DIR%src\cli\hackernews_cli.py
 set LOG_DIR=%SCRIPT_DIR%logs
 set DAEMON_LOG=%LOG_DIR%\daemon.log
 
@@ -18,14 +19,24 @@ if not exist "%PYTHON_SCRIPT%" (
 
 REM 解析命令行参数
 set ACTION=%1
+set SUBACTION=%2
+
 if "%ACTION%"=="" (
-    echo Usage: daemon.bat [start^|stop^|restart^|status]
+    echo Usage: daemon.bat [start^|stop^|restart^|status^|hackernews]
     echo.
     echo Commands:
-    echo   start   - Start the daemon process
-    echo   stop    - Stop the daemon process
-    echo   restart - Restart the daemon process
-    echo   status  - Show daemon status and recent logs
+    echo   start     - Start the daemon process
+    echo   stop      - Stop the daemon process
+    echo   restart   - Restart the daemon process
+    echo   status    - Show daemon status and recent logs
+    echo   hackernews - Hacker News operations
+    echo.
+    echo Hacker News Commands:
+    echo   daemon.bat hackernews latest [--limit N]     - Get latest hot topics
+    echo   daemon.bat hackernews report [--hours N]     - Generate time range report
+    echo   daemon.bat hackernews summary                - Generate daily summary
+    echo   daemon.bat hackernews status                 - Show HN service status
+    echo   daemon.bat hackernews history [--limit N]    - Show report history
     exit /b 1
 )
 
@@ -34,6 +45,7 @@ if "%ACTION%"=="start" goto start_daemon
 if "%ACTION%"=="stop" goto stop_daemon
 if "%ACTION%"=="restart" goto restart_daemon
 if "%ACTION%"=="status" goto show_status
+if "%ACTION%"=="hackernews" goto hackernews_operations
 echo [ERROR] Unknown action: %ACTION%
 exit /b 1
 
@@ -85,6 +97,64 @@ if exist "%DAEMON_LOG%" (
 ) else (
     echo [INFO] Daemon log file not found: %DAEMON_LOG%
 )
+goto end
+
+:hackernews_operations
+if "%SUBACTION%"=="" (
+    echo Usage: daemon.bat hackernews [latest^|report^|summary^|status^|history]
+    echo.
+    echo Commands:
+    echo   latest   - Get latest hot topics from Hacker News
+    echo   report   - Generate time range report for Hacker News topics
+    echo   summary  - Generate daily summary of Hacker News topics
+    echo   status   - Show Hacker News service status
+    echo   history  - Show report history of Hacker News topics
+    exit /b 1
+)
+
+REM 执行Hacker News相关操作
+if "%SUBACTION%"=="latest" goto hn_latest
+if "%SUBACTION%"=="report" goto hn_report
+if "%SUBACTION%"=="summary" goto hn_summary
+if "%SUBACTION%"=="status" goto hn_status
+if "%SUBACTION%"=="history" goto hn_history
+echo [ERROR] Unknown sub-action for hackernews: %SUBACTION%
+exit /b 1
+
+:hn_latest
+echo [INFO] Fetching latest hot topics from Hacker News...
+REM 跳过前两个参数(daemon.bat hackernews)，只传递剩余参数
+shift
+shift
+python "%HACKERNEWS_CLI%" latest %1 %2 %3 %4 %5 %6 %7 %8 %9
+goto end
+
+:hn_report
+echo [INFO] Generating time range report for Hacker News topics...
+REM 跳过前两个参数(daemon.bat hackernews)，只传递剩余参数
+shift
+shift
+python "%HACKERNEWS_CLI%" report %1 %2 %3 %4 %5 %6 %7 %8 %9
+goto end
+
+:hn_summary
+echo [INFO] Generating daily summary of Hacker News topics...
+python "%HACKERNEWS_CLI%" summary
+goto end
+
+:hn_status
+echo [INFO] Hacker News Service Status
+echo =====================================
+python "%HACKERNEWS_CLI%" status
+goto end
+
+:hn_history
+echo [INFO] Hacker News Report History
+echo =====================================
+REM 跳过前两个参数(daemon.bat hackernews)，只传递剩余参数
+shift
+shift
+python "%HACKERNEWS_CLI%" history %1 %2 %3 %4 %5 %6 %7 %8 %9
 goto end
 
 :end

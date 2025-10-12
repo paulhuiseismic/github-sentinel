@@ -6,6 +6,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 DAEMON_SCRIPT="$PROJECT_ROOT/src/daemon_process.py"
+HACKERNEWS_CLI="$PROJECT_ROOT/src/cli/hackernews_cli.py"
 PID_FILE="$PROJECT_ROOT/run/github_sentinel.pid"
 LOG_FILE="$PROJECT_ROOT/logs/daemon.log"
 
@@ -31,6 +32,26 @@ print_warning() {
 
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# 显示帮助信息
+show_help() {
+    echo "Usage: $0 [start|stop|restart|status|hackernews] [options]"
+    echo
+    echo "Commands:"
+    echo "  start     - Start the daemon process"
+    echo "    --foreground, -f  Run in foreground mode"
+    echo "  stop      - Stop the daemon process"
+    echo "  restart   - Restart the daemon process"
+    echo "  status    - Show daemon status and recent logs"
+    echo "  hackernews - Hacker News operations"
+    echo
+    echo "Hacker News Commands:"
+    echo "  $0 hackernews latest [--limit N]     - Get latest hot topics"
+    echo "  $0 hackernews report [--hours N]     - Generate time range report"
+    echo "  $0 hackernews summary               - Generate daily summary"
+    echo "  $0 hackernews status                - Show HN service status"
+    echo "  $0 hackernews history [--limit N]    - Show report history"
 }
 
 # 检查Python环境
@@ -174,26 +195,65 @@ show_logs() {
     fi
 }
 
-# 显示帮助信息
-show_help() {
-    echo "GitHub Sentinel 守护进程管理脚本"
-    echo ""
-    echo "用法: $0 {start|stop|restart|status|logs} [选项]"
-    echo ""
-    echo "命令:"
-    echo "  start           启动守护进程"
-    echo "  start -f        在前台模式启动守护进程"
-    echo "  stop            停止守护进程"
-    echo "  restart         重启守护进程"
-    echo "  status          查看守护进程状态"
-    echo "  logs [N]        显示最近N行日志（默认50行）"
-    echo ""
-    echo "示例:"
-    echo "  $0 start                # 启��守护进程"
-    echo "  $0 start --foreground   # 前台模式启动"
-    echo "  $0 status               # 查看状态"
-    echo "  $0 logs 100             # 查看最近100行日志"
-    echo ""
+# 处理Hacker News相关命令
+handle_hackernews() {
+    if [ ! -f "$HACKERNEWS_CLI" ]; then
+        print_error "Hacker News CLI脚本不存在: $HACKERNEWS_CLI"
+        return 1
+    fi
+
+    case "$2" in
+        latest)
+            shift 2
+            print_info "获取最新热门话题..."
+            cd "$PROJECT_ROOT"
+            $PYTHON_CMD "$HACKERNEWS_CLI" latest "$@"
+            ;;
+        report)
+            shift 2
+            print_info "生成时间范围报告..."
+            cd "$PROJECT_ROOT"
+            $PYTHON_CMD "$HACKERNEWS_CLI" report "$@"
+            ;;
+        summary)
+            print_info "生成每日摘要..."
+            cd "$PROJECT_ROOT"
+            $PYTHON_CMD "$HACKERNEWS_CLI" summary
+            ;;
+        status)
+            print_info "查看HN服务状态..."
+            cd "$PROJECT_ROOT"
+            $PYTHON_CMD "$HACKERNEWS_CLI" status
+            ;;
+        history)
+            shift 2
+            print_info "显示报告历史..."
+            cd "$PROJECT_ROOT"
+            $PYTHON_CMD "$HACKERNEWS_CLI" history "$@"
+            ;;
+        "")
+            print_error "缺少Hacker News子命令"
+            echo ""
+            echo "可用的Hacker News命令:"
+            echo "  latest   - 获取最新热门话题"
+            echo "  report   - 生成时间范围报告"
+            echo "  summary  - 生成每日摘要"
+            echo "  status   - 查看服务状态"
+            echo "  history  - 显示报告历史"
+            exit 1
+            ;;
+        *)
+            print_error "无效的Hacker News命令: $2"
+            echo ""
+            echo "可用的Hacker News命令:"
+            echo "  latest   - 获取最新热门话题"
+            echo "  report   - 生成时间范围报告"
+            echo "  summary  - 生成每日摘要"
+            echo "  status   - 查看服务状态"
+            echo "  history  - 显示报告历史"
+            exit 1
+            ;;
+    esac
 }
 
 # 主函数
@@ -218,6 +278,9 @@ main() {
             ;;
         logs)
             show_logs "$2"
+            ;;
+        hackernews)
+            handle_hackernews "$@"
             ;;
         help|--help|-h)
             show_help

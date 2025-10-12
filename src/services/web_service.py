@@ -58,6 +58,19 @@ class WebService:
 
         self.report_service = ReportService(self.llm_service, self.github_service)
         self.update_service = UpdateService(settings)
+
+        # 初始化Hacker News相关服务
+        from ..services.hackernews_report_service import HackerNewsReportService
+        from ..services.hackernews_update_service import HackerNewsUpdateService
+        from ..services.notification_service import NotificationService
+
+        self.notification_service = NotificationService(settings)
+        self.hn_report_service = HackerNewsReportService(self.llm_service)
+        self.hn_update_service = HackerNewsUpdateService(
+            self.notification_service,
+            self.hn_report_service
+        )
+
         self.app = None
 
         self.logger.info("✅ Web服务初始化完成")
@@ -109,6 +122,10 @@ class WebService:
                 # 报告生成标签页
                 with gr.Tab("📊 报告生成"):
                     self._create_report_tab()
+
+                # Hacker News标签页
+                with gr.Tab("🔥 Hacker News"):
+                    self._create_hackernews_tab()
 
                 # 系统状态标签页
                 with gr.Tab("⚙️ 系统状态"):
@@ -307,6 +324,211 @@ class WebService:
         # 页面加载时自动加载仓库列表
         repo_dropdown.choices = self._get_repo_choices()
 
+    def _create_hackernews_tab(self):
+        """创建Hacker News标签页"""
+        gr.Markdown("## 🔥 Hacker News 热门话题监控")
+        gr.Markdown("获取Hacker News最新热门话题并生成智能分析报告")
+
+        with gr.Row():
+            with gr.Column():
+                gr.Markdown("### 获取最新热门话题")
+
+                # 时间范围选择
+                hn_hours_slider = gr.Slider(
+                    label="时间范围（小时）",
+                    minimum=1,
+                    maximum=72,
+                    value=24,
+                    step=1,
+                    info="选择获取过去多少小时的热门话题"
+                )
+
+                # 显示数量选择
+                hn_limit_slider = gr.Slider(
+                    label="显示数量",
+                    minimum=5,
+                    maximum=50,
+                    value=30,
+                    step=5,
+                    info="选择获取热门话题的数量"
+                )
+
+                with gr.Row():
+                    refresh_hn_button = gr.Button("获取最新话题", variant="primary")
+                    generate_hn_report_button = gr.Button("生成分析报告", variant="secondary")
+
+            with gr.Column():
+                gr.Markdown("### 热门话题列表")
+                hn_stories_df = gr.Dataframe(
+                    headers=["标题", "分数", "评论数", "作者", "时间", "链接"],
+                    interactive=False,
+                    wrap=True
+                )
+
+        with gr.Row():
+            with gr.Column():
+                gr.Markdown("### 智能分析报告")
+                hn_report_output = gr.Textbox(
+                    label="Hacker News 分析报告",
+                    lines=15,
+                    max_lines=25,
+                    interactive=False,
+                    show_copy_button=True,
+                    placeholder="点击 '生成分析报告' 按钮来生成基于LLM的热门话题分析报告"
+                )
+
+        with gr.Row():
+            with gr.Column():
+                gr.Markdown("### 历史报告")
+                refresh_hn_reports_button = gr.Button("刷新历史报告")
+                hn_reports_df = gr.Dataframe(
+                    headers=["文件名", "生成时间", "大小"],
+                    interactive=False
+                )
+
+        # 事件处理函数
+        def get_hackernews_stories(hours, limit):
+            """获取Hacker News热门话题"""
+            try:
+                self.logger.info(f"🔍 Web界面请求获取Hacker News话题: {hours}小时, 限制{limit}个")
+
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+                # 获取故事数据
+                stories = loop.run_until_complete(
+                    self.hn_update_service.get_stories_in_range(hours=hours)
+                )
+
+                loop.close()
+
+                if not stories:
+                    self.logger.warning("⚠️  未获取到Hacker News数据")
+                    return pd.DataFrame(columns=["标题", "分数", "评论数", "作者", "时间", "链接"])
+
+                # 限制显示数量并转换为DataFrame格式
+                stories = stories[:limit]
+                data = []
+                for story in stories:
+                    # 格式化时间
+                    time_str = story.get('time', '未知时间')
+                    if isinstance(time_str, str) and 'T' in time_str:
+                        try:
+                            dt = datetime.fromisoformat(time_str.replace('Z', '+00:00'))
+                            time_str = dt.strftime('%m-%d %H:%M')
+                        except:
+                            pass
+
+                    # 截断标题长度
+                    title = story.get('title', '无标题')
+                    if len(title) > 60:
+                        title = title[:60] + '...'
+
+                    # 截断URL长度
+                    url = story.get('url', '')
+                    if len(url) > 50:
+                        url = url[:50] + '...'
+
+                    data.append([
+                        title,
+                        story.get('score', 0),
+                        story.get('descendants', 0),
+                        story.get('by', '未知'),
+                        time_str,
+                        url
+                    ])
+
+                self.logger.info(f"✅ 成功获取{len(data)}个Hacker News话题")
+                return pd.DataFrame(data, columns=["标题", "分数", "评论数", "作者", "时间", "链接"])
+
+            except Exception as e:
+                self.logger.error(f"❌ 获取Hacker News话题失败: {str(e)}")
+                return pd.DataFrame(columns=["标题", "分数", "评论数", "作者", "时间", "链接"])
+
+        def generate_hackernews_report(hours):
+            """生成Hacker News分析报告"""
+            try:
+                self.logger.info(f"📊 Web界面请求生成Hacker News报告: {hours}小时")
+
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+                # 生成报告
+                report_file = loop.run_until_complete(
+                    self.hn_update_service.generate_hourly_report(hours=hours)
+                )
+
+                loop.close()
+
+                if not report_file:
+                    self.logger.warning("⚠️  Hacker News报告生成失败")
+                    return "❌ 报告生成失败，可能没有找到相关数据或LLM服务不可用"
+
+                try:
+                    # 读取生成的报告内容
+                    with open(report_file, 'r', encoding='utf-8') as f:
+                        report_content = f.read()
+
+                    self.logger.info(f"✅ 成功生成Hacker News报告: {report_file}")
+
+                    # 添加报告头部信息
+                    header = f"📊 Hacker News 热门话题分析报告\n"
+                    header += f"时间范围: 过去{hours}小时\n"
+                    header += f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    header += f"报告文件: {Path(report_file).name}\n"
+                    header += "=" * 60 + "\n\n"
+
+                    return header + report_content
+
+                except Exception as e:
+                    self.logger.error(f"❌ 读取报告文件失败: {str(e)}")
+                    return f"❌ 报告生成成功但读取失败: {report_file}\n错误: {str(e)}"
+
+            except Exception as e:
+                self.logger.error(f"❌ 生成Hacker News报告失败: {str(e)}")
+                return f"❌ 生成报告时出错: {str(e)}"
+
+        def get_hackernews_report_history():
+            """获取Hacker News报告历史"""
+            try:
+                reports = self.hn_update_service.get_report_history(limit=20)
+
+                if not reports:
+                    return pd.DataFrame(columns=["文件名", "生成时间", "大小"])
+
+                data = []
+                for report_path in reports:
+                    file_path = Path(report_path)
+                    if file_path.exists():
+                        stat = file_path.stat()
+                        size = f"{stat.st_size / 1024:.1f} KB"
+                        mod_time = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                        data.append([file_path.name, mod_time, size])
+
+                return pd.DataFrame(data, columns=["文件名", "生成时间", "大小"])
+
+            except Exception as e:
+                self.logger.error(f"获取Hacker News报告历史失败: {e}")
+                return pd.DataFrame(columns=["文件名", "生成时间", "大小"])
+
+        # 绑定事件
+        refresh_hn_button.click(
+            fn=get_hackernews_stories,
+            inputs=[hn_hours_slider, hn_limit_slider],
+            outputs=[hn_stories_df]
+        )
+
+        generate_hn_report_button.click(
+            fn=generate_hackernews_report,
+            inputs=[hn_hours_slider],
+            outputs=[hn_report_output]
+        )
+
+        refresh_hn_reports_button.click(
+            fn=get_hackernews_report_history,
+            outputs=[hn_reports_df]
+        )
+
     def _get_repo_choices(self) -> List[str]:
         """获取可选择的仓库列表"""
         try:
@@ -437,8 +659,6 @@ github:
                     return f"❌ GitHub API访问被拒绝 (403)\n\n可能原因：\n- API调用频率超限\n- Token权限不足\n- 仓库为私有且无访问权限\n\n详细错误: {error_msg}"
                 elif "404" in error_msg:
                     return f"❌ 仓库不存在或无法访问 (404)\n\n请检查：\n- 仓库名称是否正确\n- 仓库是否为公开仓库\n- 是否有访问权限\n\n仓库: {selected_repo}"
-                elif "can't compare offset-naive and offset-aware datetimes" in error_msg:
-                    return f"❌ 时间比较错误已修复，请重试\n\n这是一个已知问题，现在应该已经解决。请再次尝试生成报告。\n\n详细错误: {error_msg}"
                 else:
                     return f"❌ 生成报告时出错: {error_msg}"
             finally:
@@ -466,7 +686,7 @@ github:
                 gr.Markdown("### 手动扫描")
                 scan_type_radio = gr.Radio(
                     label="扫描类型",
-                    choices=["daily", "weekly"],
+                    choices=["daily", "weekly", "hackernews"],
                     value="daily"
                 )
                 manual_scan_button = gr.Button("执行扫描", variant="secondary")
@@ -578,7 +798,7 @@ github:
 
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            success = loop.run_until_complete(self.subscription_service.delete_subscription(subscription_id))
+            success = loop.run_until_complete(self.subscription_service.remove_subscription(subscription_id))
             loop.close()
 
             if success:
@@ -594,57 +814,15 @@ github:
             self.logger.error(f"❌ Web界面删除订阅时出错: {str(e)}", exc_info=True)
             return f"❌ 删除订阅时出错: {str(e)}", self._get_subscriptions_df()
 
-    def _generate_report(self, report_type: str, days: int) -> str:
-        """生成报告（备用方法）"""
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-            subscriptions = loop.run_until_complete(self.subscription_service.get_active_subscriptions())
-            if not subscriptions:
-                loop.close()
-                return "❌ 没有活跃的订阅，无法生成报告"
-
-            # 根据报告类型确定天数
-            if report_type == "daily":
-                days = 1
-            elif report_type == "weekly":
-                days = 7
-
-            # 获取更新数据
-            updates = loop.run_until_complete(self.update_service.fetch_updates(subscriptions, days))
-
-            if not updates:
-                loop.close()
-                return f"📝 在过去{days}天内没有发现新的更新"
-
-            # 使用简单的报告生成方法
-            report_content = f"📊 {report_type.upper()}报告 - {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
-            report_content += f"时间范围: 过去{days}天\n"
-            report_content += f"扫描仓库: {len(subscriptions)}个\n"
-            report_content += f"发现更新: {len(updates)}个\n\n"
-
-            for update in updates[:10]:  # 显示前10个更新
-                report_content += f"• {update.get('repo', 'Unknown')}: {update.get('title', 'No title')}\n"
-
-            if len(updates) > 10:
-                report_content += f"... 还有 {len(updates) - 10} 个更新\n"
-
-            loop.close()
-            return report_content
-
-        except Exception as e:
-            return f"❌ 生成报告时出错: {str(e)}"
-
     def _get_historical_reports(self) -> pd.DataFrame:
         """获取历史报告列表"""
         try:
-            reports_dir = Path("data/reports")
+            reports_dir = Path("daily_progress")
             if not reports_dir.exists():
                 return pd.DataFrame(columns=["文件名", "生成时间", "大小"])
 
             data = []
-            for file_path in reports_dir.glob("*.json"):
+            for file_path in reports_dir.glob("*.md"):
                 stat = file_path.stat()
                 size = f"{stat.st_size / 1024:.1f} KB"
                 mod_time = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
@@ -663,18 +841,30 @@ github:
             asyncio.set_event_loop(loop)
             subscriptions = loop.run_until_complete(self.subscription_service.get_all_subscriptions())
             active_subs = [s for s in subscriptions if s.is_active]
+
+            # 获取Hacker News服务状态
+            hn_status = self.hn_update_service.get_status()
             loop.close()
 
             status_info = []
             status_info.append("🚀 GitHub Sentinel 系统状态")
             status_info.append("=" * 40)
-            status_info.append(f"📊 订阅总数: {len(subscriptions)}")
-            status_info.append(f"✅ 活跃订阅: {len(active_subs)}")
-            status_info.append(f"⏰ 当前时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            status_info.append(f"📊 GitHub订阅总数: {len(subscriptions)}")
+            status_info.append(f"✅ 活跃GitHub订阅: {len(active_subs)}")
             status_info.append("")
 
+            # Hacker News状态
+            status_info.append("🔥 Hacker News 监控状态")
+            status_info.append(f"📊 总报告数: {hn_status.get('total_reports', 0)}")
+            status_info.append(f"📋 总结数: {hn_status.get('total_summaries', 0)}")
+            status_info.append(f"⚙️  服务状态: {hn_status.get('status', '未知')}")
+            status_info.append("")
+
+            status_info.append(f"⏰ 当前时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
             if active_subs:
-                status_info.append("📋 活跃订阅详情:")
+                status_info.append("")
+                status_info.append("📋 活跃GitHub订阅详情:")
                 for sub in active_subs[:5]:  # 显示前5个
                     last_check = sub.last_checked.strftime('%Y-%m-%d %H:%M') if sub.last_checked else "从未检查"
                     status_info.append(f"  • {sub.owner}/{sub.repo_name} - {sub.frequency.value} - 最后检查: {last_check}")
@@ -690,23 +880,38 @@ github:
     def _run_manual_scan(self, scan_type: str) -> str:
         """执行手动扫描"""
         try:
-            from ..main import GitHubSentinel
+            if scan_type == "hackernews":
+                # 执行Hacker News扫描
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
 
-            # 创建GitHubSentinel实例
-            sentinel = GitHubSentinel()
+                report_file = loop.run_until_complete(
+                    self.hn_update_service.generate_hourly_report(hours=24)
+                )
 
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+                loop.close()
 
-            if scan_type == "daily":
-                loop.run_until_complete(sentinel.run_daily_scan())
-                result = "✅ 每日扫描已完成"
+                if report_file:
+                    return f"✅ Hacker News扫描完成，报告已生成: {Path(report_file).name}"
+                else:
+                    return "⚠️  Hacker News扫描完成，但未生成新报告"
             else:
-                loop.run_until_complete(sentinel.run_weekly_scan())
-                result = "✅ 每周扫描已完成"
+                # 执行GitHub扫描
+                from ..main import GitHubSentinel
+                sentinel = GitHubSentinel()
 
-            loop.close()
-            return result
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+                if scan_type == "daily":
+                    loop.run_until_complete(sentinel.run_daily_scan())
+                    result = "✅ 每日扫描已完成"
+                else:
+                    loop.run_until_complete(sentinel.run_weekly_scan())
+                    result = "✅ 每周扫描已完成"
+
+                loop.close()
+                return result
 
         except Exception as e:
             return f"❌ 执行扫描时出错: {str(e)}"

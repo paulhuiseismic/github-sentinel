@@ -13,12 +13,16 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.models.subscription import Subscription, NotificationType, UpdateFrequency, UpdateType
+from src.models.hackernews import HackerNewsSubscription
 from src.services.subscription_service import SubscriptionService
 from src.services.update_service import UpdateService
 from src.services.notification_service import NotificationService
 from src.services.github_service import GitHubService
 from src.services.llm_service import LLMService, create_azure_openai_provider, create_openai_provider
 from src.services.report_service import ReportService
+from src.services.hackernews_service import HackerNewsService
+from src.services.hackernews_report_service import HackerNewsReportService
+from src.services.hackernews_update_service import HackerNewsUpdateService
 from src.config.settings import Settings
 from src.utils.logger import get_cli_logger
 
@@ -49,12 +53,15 @@ class GitHubSentinelCLI:
         self.llm_service = LLMService()
         self._setup_llm_providers()
 
-        self.report_service = ReportService(self.llm_service, self.github_service)
-
-        # 传统服务
+        # 初始化Hacker News相关服务
         self.subscription_service = SubscriptionService(self.settings)
-        self.update_service = UpdateService(self.settings)
         self.notification_service = NotificationService(self.settings)
+        self.hn_report_service = HackerNewsReportService(self.llm_service)
+        self.hn_update_service = HackerNewsUpdateService(
+            self.subscription_service,
+            self.notification_service,
+            self.hn_report_service
+        )
 
     def _setup_llm_providers(self):
         """设置LLM提供商"""
@@ -201,6 +208,29 @@ class GitHubSentinelCLI:
         history_parser.add_argument('--limit', type=int, default=10,
                                   help='显示数量限制')
 
+        # === Hacker News 相关命令 ===
+        # 添加Hacker News订阅
+        hn_add_parser = subparsers.add_parser('hn_add', help='添加新的Hacker News订阅')
+        hn_add_parser.add_argument('query', help='查询关键词')
+        hn_add_parser.add_argument('--frequency', choices=['daily', 'weekly', 'both'],
+                                 default='daily', help='更新频率')
+        hn_add_parser.add_argument('--notifications', nargs='+',
+                                 choices=['email', 'slack', 'discord', 'webhook'],
+                                 default=['email'], help='通知方式')
+
+        # 列出Hacker News订阅
+        hn_list_parser = subparsers.add_parser('hn_list', help='列出所有Hacker News订阅')
+        hn_list_parser.add_argument('--format', choices=['table', 'json'],
+                                  default='table', help='输出格式')
+
+        # 删除Hacker News订阅
+        hn_remove_parser = subparsers.add_parser('hn_remove', help='删除Hacker News订阅')
+        hn_remove_parser.add_argument('query', help='要删除的Hacker News查询关键词')
+
+        # 手动运行Hacker News检查
+        hn_run_parser = subparsers.add_parser('hn_run', help='手动运行Hacker News检查')
+        hn_run_parser.add_argument('--query', help='指定查询（可选）')
+
         return parser
 
     async def handle_command(self, args):
@@ -229,6 +259,15 @@ class GitHubSentinelCLI:
                 await self._handle_llm_commands(args)
             elif args.command == 'history':
                 await self._handle_report_history(args)
+            # Hacker News 相关命令
+            elif args.command == 'hn_add':
+                await self._handle_add_hn_subscription(args)
+            elif args.command == 'hn_list':
+                await self._handle_list_hn_subscriptions(args)
+            elif args.command == 'hn_remove':
+                await self._handle_remove_hn_subscription(args)
+            elif args.command == 'hn_run':
+                await self._handle_hn_run_check(args)
             else:
                 print("未知命令，使用 --help 查看帮助")
                 return 1
@@ -484,6 +523,53 @@ class GitHubSentinelCLI:
             print("正在检查所有订阅的仓库...")
 
         await self.update_service.check_updates()
+        print("✅ 检查完成")
+
+    # === Hacker News 相关命令处理方法 ===
+    async def _handle_add_hn_subscription(self, args):
+        """处理添加Hacker News订阅命令"""
+        subscription = HackerNewsSubscription(
+            query=args.query,
+            frequency=UpdateFrequency(args.frequency),
+            notification_types=[NotificationType(n) for n in args.notifications]
+        )
+
+        await self.subscription_service.add_hackernews_subscription(subscription)
+        print(f"✅ 已添加Hacker News订阅: {args.query}")
+
+    async def _handle_list_hn_subscriptions(self, args):
+        """处理列出Hacker News订阅命令"""
+        subscriptions = await self.subscription_service.get_all_hackernews_subscriptions()
+
+        if not subscriptions:
+            print("没有订阅的Hacker News")
+            return
+
+        if args.format == 'json':
+            import json
+            data = [s.to_dict() for s in subscriptions]
+            print(json.dumps(data, indent=2, ensure_ascii=False, default=str))
+        else:
+            print(f"共有 {len(subscriptions)} 个Hacker News订阅:")
+            for i, sub in enumerate(subscriptions, 1):
+                print(f"{i}. {sub.query}")
+                print(f"   频率: {sub.frequency.value}")
+                print(f"   通知: {[n.value for n in sub.notification_types]}")
+                print()
+
+    async def _handle_remove_hn_subscription(self, args):
+        """处理删除Hacker News订阅命令"""
+        await self.subscription_service.remove_hackernews_subscription(args.query)
+        print(f"✅ 已删除Hacker News订阅: {args.query}")
+
+    async def _handle_hn_run_check(self, args):
+        """处理手动运行Hacker News检查命令"""
+        if args.query:
+            print(f"正在检查 Hacker News 查询: {args.query}...")
+        else:
+            print("正在检查所有Hacker News订阅...")
+
+        await self.hn_update_service.check_updates()
         print("✅ 检查完成")
 
     def _parse_repo_url(self, url: str) -> Optional[dict]:
