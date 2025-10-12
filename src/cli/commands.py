@@ -20,7 +20,7 @@ from src.services.github_service import GitHubService
 from src.services.llm_service import LLMService, create_azure_openai_provider, create_openai_provider
 from src.services.report_service import ReportService
 from src.config.settings import Settings
-from src.utils.logger import setup_logger
+from src.utils.logger import get_cli_logger
 
 
 class GitHubSentinelCLI:
@@ -37,7 +37,7 @@ class GitHubSentinelCLI:
         except Exception:
             pass
 
-        self.logger = setup_logger(self.settings.log_level, self.settings.log_file)
+        self.logger = get_cli_logger(self.settings.log_level)
 
         # 初始化服务
         self.github_service = GitHubService(

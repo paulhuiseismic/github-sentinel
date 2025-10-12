@@ -19,19 +19,15 @@ from src.services.report_service import ReportService
 from src.services.github_service import GitHubService
 from src.services.web_service import WebService
 from src.utils.scheduler import TaskScheduler
-from src.utils.logger import setup_logger
+from src.utils.logger import get_main_logger
 
 
 class GitHubSentinel:
     def __init__(self, config_path: str = None):
         """初始化GitHub Sentinel"""
         self.settings = Settings.from_config_file(config_path)
-        # 使用新的日志配置，传递日志文件路径
-        self.logger = setup_logger(
-            self.settings.log_level,
-            self.settings.log_file,
-            "github_sentinel"
-        )
+        # 使用专用的主程序logger
+        self.logger = get_main_logger(self.settings.log_level)
 
         # 记录启动信息
         self.logger.info("=" * 50)

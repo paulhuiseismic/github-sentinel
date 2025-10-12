@@ -234,8 +234,15 @@ class Settings:
         return cls(
             github=github_config,
             llm_providers=llm_providers,
-            debug=os.getenv("DEBUG", "false").lower() == "true",
+            notification=NotificationConfig(),
+            database=DatabaseConfig(),
+            report=ReportConfig(),
             log_level=os.getenv("LOG_LEVEL", "INFO"),
+            log_file=os.getenv("LOG_FILE", "logs/github_sentinel.log"),
+            daily_scan_time=os.getenv("DAILY_SCAN_TIME", "09:00"),
+            weekly_scan_time=os.getenv("WEEKLY_SCAN_TIME", "09:00"),
+            weekly_scan_day=os.getenv("WEEKLY_SCAN_DAY", "monday"),
+            max_concurrent_requests=int(os.getenv("MAX_CONCURRENT_REQUESTS", "5"))
         )
 
     @classmethod
@@ -295,9 +302,13 @@ class Settings:
             llm_providers=llm_providers,
             report=report_config,
             database=database_config,
-            debug=data.get("debug", False),
+            notification=NotificationConfig(),
             log_level=data.get("log_level", "INFO"),
-            log_file=data.get("log_file", "logs/github_sentinel.log")
+            log_file=data.get("log_file", "logs/github_sentinel.log"),
+            daily_scan_time=data.get("daily_scan_time", "09:00"),
+            weekly_scan_time=data.get("weekly_scan_time", "09:00"),
+            weekly_scan_day=data.get("weekly_scan_day", "monday"),
+            max_concurrent_requests=data.get("max_concurrent_requests", 5)
         )
 
     @classmethod

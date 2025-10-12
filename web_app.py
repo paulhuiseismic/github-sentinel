@@ -11,7 +11,7 @@ sys.path.insert(0, str(project_root))
 
 from src.main import GitHubSentinel
 from src.config.settings import Settings
-from src.utils.logger import setup_logger, cleanup_old_logs
+from src.utils.logger import get_web_logger, cleanup_old_logs
 
 def main():
     """启动Web界面"""
@@ -21,14 +21,10 @@ def main():
     try:
         # 首先设置日志
         settings = Settings.from_config_file()
-        logger = setup_logger(
-            settings.log_level,
-            settings.log_file,
-            "github_sentinel_web"
-        )
+        logger = get_web_logger(settings.log_level)
 
         # 清理旧日志文件
-        cleanup_old_logs("logs", 30)
+        cleanup_old_logs("logs", 10)
 
         logger.info("=" * 50)
         logger.info("GitHub Sentinel Web界面启动中...")

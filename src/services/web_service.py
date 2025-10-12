@@ -19,9 +19,9 @@ from ..services.subscription_service import SubscriptionService
 from ..services.report_service import ReportService
 from ..services.update_service import UpdateService
 from ..services.github_service import GitHubService
-from ..config.settings import Settings
-from ..utils.logger import setup_logger
 from ..services.llm_service import LLMService, create_azure_openai_provider, create_openai_provider
+from ..config.settings import Settings
+from ..utils.logger import get_web_logger
 
 
 class WebService:
@@ -29,12 +29,8 @@ class WebService:
 
     def __init__(self, settings: Settings):
         self.settings = settings
-        # 使用新的日志配置，为Web服务创建专门的logger
-        self.logger = setup_logger(
-            settings.log_level,
-            settings.log_file,
-            "github_sentinel.web"
-        )
+        # 使用专用的Web服务logger
+        self.logger = get_web_logger(settings.log_level)
 
         self.logger.info("🌐 初始化Web服务...")
         self.subscription_service = SubscriptionService(settings)
